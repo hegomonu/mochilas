@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Access-Control-Allow-Origin" content="*">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.9.0/css/ol.css" type="text/css">
+    <script src="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.9.0/build/ol.js"></script>
+    <link rel="stylesheet" href="https://viglino.github.io/ol-ext//dist/ol-ext.css" type="text/css">
+    <script src="https://viglino.github.io/ol-ext//dist/ol-ext.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+
+	  <!-- ol3-layerswitcher -->
+    <script src="https://unpkg.com/ol-layerswitcher@3.8.3"></script>
+    <link rel="stylesheet" href="https://unpkg.com/ol-layerswitcher@3.8.3/dist/ol-layerswitcher.css" />
+    
+    <style> 
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      .ol-popup {
+        position: absolute;
+        background-color: white;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #cccccc;
+        bottom: 12px;
+        left: -50px;
+        min-width: 280px;
+        max-height: 320px;
+        overflow: auto;
+      }
+      .ol-popup:after, .ol-popup:before {
+        top: 100%;
+        border: solid transparent;
+        content: " ";
+        height: 0;
+        width: 0;
+        position: absolute;
+        pointer-events: none;
+      }
+      .ol-popup:after {
+        border-top-color: white;
+        border-width: 10px;
+        left: 48px;
+        margin-left: -10px;
+      }
+      .ol-popup:before {
+        border-top-color: #cccccc;
+        border-width: 11px;
+        left: 48px;
+        margin-left: -11px;
+      }
+      .ol-popup-closer {
+        text-decoration: none;
+        position: absolute;
+        top: 2px;
+        right: 8px;
+      }
+      .ol-popup-closer:after {
+        content: "✖";
+      }
+    </style> 
+    <title>Catastro Mazatlan</title>
+  </head>
+  <body>
+    <div style="width:100%; height:100%" id="map"></div>
+    <div id="popup" class="ol-popup">
+      <a href="#" id="popup-closer" class="ol-popup-closer"></a>
+      <div id="popup-content">Sin información...</div>
+    </div>
+    <script>
+      ////////////////////////////////////////   BORRAR
+      var pi = 3.14159265358979;
+
+      /* Ellipsoid model constants (actual values here are for WGS84) */
+      var sm_a = 6378137.0;
+      var sm_b = 6356752.314;
+      var sm_EccSquared = 6.69437999013e-03;
+      /*var sm_a = 6378137.0   /// GRS80 para 6368
+      var sm_b = 0.996647189318816362*6378137.0
+      var sm_EccSquared = (Math.pow(sm_a,2)-Math.pow(sm_b,2))/Math.pow(sm_a,2);*/
+
+      var UTMScaleFactor = 0.9996;
+
+      function DegToRad (deg)
+          {
+              return (deg / 180.0 * pi)
+          }
+      function ArcLengthOfMeridian (phi)
+          {
+              var alpha, beta, gamma, delta, epsilon, n;
+              var result;
+
+              /* Precalculate n */
+              n = (sm_a - sm_b) / (sm_a + sm_b);
+
+              /* Precalculate alpha */
+              alpha = ((sm_a + sm_b) / 2.0)
+                 * (1.0 + (Math.pow (n, 2.0) / 4.0) + (Math.pow (n, 4.0) / 64.0));
+
+              /* Precalculate beta */
+              beta = (-3.0 * n / 2.0) + (9.0 * Math.pow (n, 3.0) / 16.0)
+                 + (-3.0 * Math.pow (n, 5.0) / 32.0);
+
+              /* Precalculate gamma */
+              gamma = (15.0 * Math.pow (n, 2.0) / 16.0)
+                  + (-15.0 * Math.pow (n, 4.0) / 32.0);
+          
+              /* Precalculate delta */
+              delta = (-35.0 * Math.pow (n, 3.0) / 48.0)
+                  + (105.0 * Math.pow (n, 5.0) / 256.0);
+          
+              /* Precalculate epsilon */
+              epsilon = (315.0 * Math.pow (n, 4.0) / 512.0);
+          
+          /* Now calculate the sum of the series and return */
+          result = alpha
+              * (phi + (beta * Math.sin (2.0 * phi))
+                  + (gamma * Math.sin (4.0 * phi))
+                  + (delta * Math.sin (6.0 * phi))
+                  + (epsilon * Math.sin (8.0 * phi)));
+
+          return result;
+          }
+      function MapLatLonToXY (phi, lambda, lambda0, xy)
+          {
+              var N, nu2, ep2, t, t2, l;
+              var l3coef, l4coef, l5coef, l6coef, l7coef, l8coef;
+              var tmp;
+
+              /* Precalculate ep2 */
+              ep2 = (Math.pow (sm_a, 2.0) - Math.pow (sm_b, 2.0)) / Math.pow (sm_b, 2.0);
+          
+              /* Precalculate nu2 */
+              nu2 = ep2 * Math.pow (Math.cos (phi), 2.0);
+          
+              /* Precalculate N */
+              N = Math.pow (sm_a, 2.0) / (sm_b * Math.sqrt (1 + nu2));
+          
+              /* Precalculate t */
+              t = Math.tan (phi);
+              t2 = t * t;
+              tmp = (t2 * t2 * t2) - Math.pow (t, 6.0);
+
+              /* Precalculate l */
+              l = lambda - lambda0;
+          
+              /* Precalculate coefficients for l**n in the equations below
+                 so a normal human being can read the expressions for easting
+                 and northing
+                 -- l**1 and l**2 have coefficients of 1.0 */
+              l3coef = 1.0 - t2 + nu2;
+          
+              l4coef = 5.0 - t2 + 9 * nu2 + 4.0 * (nu2 * nu2);
+          
+              l5coef = 5.0 - 18.0 * t2 + (t2 * t2) + 14.0 * nu2
+                  - 58.0 * t2 * nu2;
+          
+              l6coef = 61.0 - 58.0 * t2 + (t2 * t2) + 270.0 * nu2
+                  - 330.0 * t2 * nu2;
+          
+              l7coef = 61.0 - 479.0 * t2 + 179.0 * (t2 * t2) - (t2 * t2 * t2);
+          
+              l8coef = 1385.0 - 3111.0 * t2 + 543.0 * (t2 * t2) - (t2 * t2 * t2);
+          
+              /* Calculate easting (x) */
+              xy[0] = N * Math.cos (phi) * l
+                  + (N / 6.0 * Math.pow (Math.cos (phi), 3.0) * l3coef * Math.pow (l, 3.0))
+                  + (N / 120.0 * Math.pow (Math.cos (phi), 5.0) * l5coef * Math.pow (l, 5.0))
+                  + (N / 5040.0 * Math.pow (Math.cos (phi), 7.0) * l7coef * Math.pow (l, 7.0));
+          
+              /* Calculate northing (y) */
+              xy[1] = ArcLengthOfMeridian (phi)
+                  + (t / 2.0 * N * Math.pow (Math.cos (phi), 2.0) * Math.pow (l, 2.0))
+                  + (t / 24.0 * N * Math.pow (Math.cos (phi), 4.0) * l4coef * Math.pow (l, 4.0))
+                  + (t / 720.0 * N * Math.pow (Math.cos (phi), 6.0) * l6coef * Math.pow (l, 6.0))
+                  + (t / 40320.0 * N * Math.pow (Math.cos (phi), 8.0) * l8coef * Math.pow (l, 8.0));
+          
+              return;
+          }
+      function UTMCentralMeridian (zone)
+          {
+              var cmeridian;
+
+              cmeridian = DegToRad (-183.0 + (zone * 6.0));
+          
+              return cmeridian;
+          }
+
+      function LatLonToUTMXY (lat, lon, zone, xy)
+      {
+          MapLatLonToXY (lat, lon, UTMCentralMeridian (zone), xy);
+
+          /* Adjust easting and northing for UTM system. */
+          xy[0] = xy[0] * UTMScaleFactor + 500000.0;
+          xy[1] = xy[1] * UTMScaleFactor;
+          if (xy[1] < 0.0)
+              xy[1] = xy[1] + 10000000.0;
+
+          return zone;
+      }
+
+
+      /////////////////////////////////////// BORRAR
+      /**
+       * Elements that make up the popup.
+       */
+      const container = document.getElementById('popup');
+      const content = document.getElementById('popup-content');
+      const closer = document.getElementById('popup-closer');
+
+      const sourceBusqueda = new ol.source.Vector();
+
+      const vectorLayer = new ol.layer.Vector({
+        source: sourceBusqueda,
+        style: new ol.style.Style({
+          stroke: new ol.style.Stroke({
+            color: 'blue',
+            lineDash: [4],
+            width: 3,
+          }),
+          fill: new ol.style.Fill({
+            color: 'rgba(0, 0, 255, 0.1)',
+          }),
+        })
+      });
+
+      /**
+       * Create an overlay to anchor the popup to the map.
+       */
+      const overlay = new ol.Overlay({
+        element: container,
+        autoPan: true,
+        autoPanAnimation: {
+          duration: 250,
+        },
+      });
+
+      /**
+       * Add a click handler to hide the popup.
+       * @return {boolean} Don't follow the href.
+       */
+      closer.onclick = function () {
+        overlay.setPosition(undefined);
+        closer.blur();
+        return false;
+      };
+
+      let u = prompt("Usuario para ver ortofotos:", "");
+      let p = prompt("Constraseña:", "");
+
+      var map = new ol.Map({
+        layers: 
+        [new ol.layer.Group({
+          'title': 'Base maps',
+          layers: [
+            new ol.layer.Tile({
+              title: 'Google Satelite',
+              visible: false,
+              source: new ol.source.XYZ({
+                url : 'http://www.google.cn/maps/vt?lyrs=s@189&gl=cn&x={x}&y={y}&z={z}'
+              })
+            }),
+            new ol.layer.Tile ({
+              title: 'ESRI',
+              source: new ol.source.TileArcGISRest({
+                ratio:1,
+                params:{},
+                url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/',
+              })
+            }),
+            vectorLayer
+          ]
+        }),
+        new ol.layer.Group({
+          title: 'Overlays',
+          layers: [new ol.layer.Tile({
+            title: 'Ortofotos',
+            visible: false,
+            source: new ol.source.TileWMS({
+                url: 'http://catastro.culiacan.gob.mx:8082/geoserver/catastro/wms',
+                params: {'FORMAT': 'image/png', 
+                              'VERSION': '1.3.0',
+                              tiled: true,
+                            "LAYERS": '	catastro:orto_mochis'
+                      },
+                serverType: 'geoserver',
+                crossOrigin: null,
+                tileLoadFunction: function (tile, src) {
+                    var xhr = new XMLHttpRequest();
+                    xhr.responseType = 'blob';
+                    xhr.open('GET', src);
+                    xhr.setRequestHeader("Authorization", "Basic " + window.btoa(u + ":" + p));
+                    xhr.onload = function() {
+                        if (this.response) {
+                            var objectUrl = URL.createObjectURL(xhr.response);
+                            tile.getImage().onload = function() {
+                                URL.revokeObjectURL(objectUrl);
+                            };
+                            tile.getImage().src = objectUrl;
+                        } else {
+                            tile.setState(3);
+                        }
+                    };
+                    xhr.onerror = function() {
+                        tile.setState(3);
+                    };
+                    xhr.send();
+                }
+            })
+          }),
+          new ol.layer.Tile({
+            title: 'CatastroAhome',
+            visible: false,
+            source: new ol.source.TileWMS({
+                url: 'https://geoservervte.sinaloa.gob.mx/geoserver/ices/wms',
+                params: {'FORMAT': 'image/png', 
+                              'VERSION': '1.3.0',
+                              tiled: true,
+                            "LAYERS": 'ices:CatastroAhome',
+                            "exceptions": 'application/vnd.ogc.se_inimage'
+                      },
+                serverType: 'geoserver',
+                crossOrigin: 'anonymous'
+            })
+          })
+        ,new ol.layer.Tile({
+            title: 'Inspeccion Ahome',
+            visible: false,
+            source: new ol.source.TileWMS({
+                url: 'https://geoservervte.sinaloa.gob.mx/geoserver/ices/wms',
+                params: {'FORMAT': 'image/png', 
+                              'VERSION': '1.3.0',
+                              tiled: true,
+                            "LAYERS": 'ices:CasoAhome',
+                            "exceptions": 'application/vnd.ogc.se_inimage'
+                      },
+                serverType: 'geoserver',
+                crossOrigin: 'anonymous'
+            })
+          })
+        ,new ol.layer.Tile({
+            title: 'MapaBase',
+            visible: false,
+            source: new ol.source.TileWMS({
+                url: 'https://geoservervte.sinaloa.gob.mx/geoserver/ices/wms',
+                params: {'FORMAT': 'image/png', 
+                              'VERSION': '1.3.0',
+                              tiled: true,
+                            "LAYERS": 'ices:MapaBase',
+                            "exceptions": 'application/vnd.ogc.se_inimage'
+                      },
+                      serverType: 'geoserver',
+                crossOrigin: 'anonymous'
+            })
+          }),
+          new ol.layer.Tile({
+            title: 'CartografiaAhome',
+            visible: false,
+            source: new ol.source.TileWMS({
+                url: 'https://geoservervte.sinaloa.gob.mx/geoserver/ices/wms',
+                params: {'FORMAT': 'image/png', 
+                              'VERSION': '1.1.0',
+                              tiled: true,
+                            "LAYERS": 'ices:CartografiaAhome',
+                            "exceptions": 'application/vnd.ogc.se_inimage'
+                      },
+                serverType: 'geoserver',
+                crossOrigin: 'anonymous'
+            })
+          })
+        ]})],
+        target: 'map',
+          overlays: [overlay], 
+          view: new ol.View({ 
+            projection: 'EPSG:4326',
+            center: [-108.99494325,25.79344648], 
+            zoom: 12
+          }) 
+      });
+
+      
+
+      var tiled = new ol.layer.Tile({
+        visible: true,
+        source: new ol.source.TileWMS({
+          url: 'https://geoservervte.sinaloa.gob.mx/geoserver/ices/wms',
+          params: {'FORMAT': 'image/png', 
+                   'VERSION': '1.3.0',
+                   tiled: true,
+                "LAYERS": 'ices:CatastroAhome',
+                "exceptions": 'application/vnd.ogc.se_inimage'
+          },
+                crossOrigin: 'anonymous'
+        })
+      });
+
+
+      var layerSwitcher = new ol.control.LayerSwitcher({ 
+        tipLabel: 'Leyenda' 
+      });
+      map.addControl(layerSwitcher);
+      layerSwitcher.showPanel();
+      
+
+      /**
+       * Add a click handler to the map to render the popup.
+       */
+      map.on('singleclick', function (evt) {
+        const coordinate = evt.coordinate;
+        console.log(coordinate);
+        var view = map.getView();
+        var viewResolution = view.getResolution();
+        var source = tiled.getSource();
+        var url = source.getFeatureInfoUrl(
+          evt.coordinate, viewResolution, view.getProjection(),
+          {'INFO_FORMAT': 'application/json', 'FEATURE_COUNT': 50});
+        if (url) {
+          fetch(url)
+            .then(function (response) { return response.text(); })
+            .then(function (json) {
+              n_json = JSON.parse(json)
+              if (n_json.features.length !== 0) {
+                let html = "";
+                for (var feat in n_json.features) {
+                  nameLyr = n_json.features[feat].id
+                  nameLyr = nameLyr.substring(0, nameLyr.indexOf('.'));
+                  //if (nameLyr != 'PredioNavolato'){
+                    console.log((n_json.features[feat]))
+                    let prop = n_json.features[feat].properties
+                    let keys = Object.keys(prop);
+                    //console.log((keys))
+                    html+= '<p class="m-0">'+nameLyr+'</p>';
+                    html+= '<div class="container">';            
+                    for (var i = 0; i<keys.length ;i++){
+                      //console.log(keys[i],prop[keys[i]])
+                      html = html + '<div class="row"><div class="col">'+keys[i]+'</div><div class="col">'+prop[keys[i]] +'</div></div>';
+                      if(keys[i].toLowerCase() == 'clave'){
+                        
+                      }
+                    }
+                    html = html + '</div>';
+                  }
+                  
+                //}
+                content.innerHTML = html;
+              }else{
+                content.innerHTML = 'Sin información...'
+              }
+            });
+        }
+
+        const hdms = ol.coordinate.toStringHDMS(coordinate);
+
+        //content.innerHTML = '<p>You clicked here:</p><code>' + hdms + '</code>';
+        overlay.setPosition(coordinate);
+      });
+
+      
+
+      map.addControl(new ol.control.ZoomSlider()); 
+
+      var mySearch = new ol.control.Search (
+      {   
+          title: "Buscar Clave",
+          placeholder: "Clave..."
+      });
+      
+      map.addControl (mySearch);
+      
+      $("input.search").keypress(function(event){
+        sourceBusqueda.clear()
+        var keycode = (event.keyCode ? event.keyCode : event.which);
+        if(keycode == '13'){
+          const clave = mySearch.getInputField().value
+          console.log(clave); 
+          console.log(clave.length); 
+          mySearch.getInputField().value='';
+          switch(clave.length){
+            case 18:
+              var url = "https://geoservervte.sinaloa.gob.mx/geoserver/ices/ows?"+
+                        "service=WFS&"+
+                        "version=1.0.0&"+
+                        "request=GetFeature&"+
+                        "typeName=ices%3APredioAhome&"+
+                        "outputFormat=application%2Fjson&"+
+                        "srsName=EPSG:4326&"+
+                        "cql_filter=Clave='"+clave+"'";
+              console.log(url);
+              if (url) {
+                fetch(url)
+                  .then(function (response) { return response.text(); })
+                  .then(function (json) {
+                    n_json = JSON.parse(json)
+                    for (i=0;i<n_json.features.length;i++){
+                      geojs_geom = n_json.features[i].geometry
+                      console.log(geojs_geom)
+
+                      var features = new ol.format.GeoJSON().readFeatures(geojs_geom);
+                      features.forEach(function(feature){ feature.setId(undefined) });
+
+                      sourceBusqueda.addFeatures(features)
+                      console.log(sourceBusqueda.getExtent())
+                      map.getView().fit(sourceBusqueda.getExtent())
+                    } 
+                  })
+              }
+              break;
+            case 12:
+              var url = "https://geoservervte.sinaloa.gob.mx/geoserver/ices/ows?"+
+                        "service=WFS&"+
+                        "version=1.0.0&"+
+                        "request=GetFeature&"+
+                        "typeName=ices%3AManzanaAhome&"+
+                        "outputFormat=application%2Fjson&"+
+                        "srsName=EPSG:4326&"+
+                        "cql_filter=Clave='"+clave+"'";
+              console.log(url);
+              if (url) {
+                fetch(url)
+                  .then(function (response) { return response.text(); })
+                  .then(function (json) {
+                    n_json = JSON.parse(json)
+                    for (i=0;i<n_json.features.length;i++){
+                      geojs_geom = n_json.features[i].geometry
+                      console.log(geojs_geom)
+
+                      var features = new ol.format.GeoJSON().readFeatures(geojs_geom);
+                      features.forEach(function(feature){ feature.setId(undefined) });
+
+                      sourceBusqueda.addFeatures(features)
+                      console.log(sourceBusqueda.getExtent())
+                      map.getView().fit(sourceBusqueda.getExtent())
+                    } 
+                  })
+              }
+              break;
+            default:
+              alert("Revisa la clave ingresada \n"+clave+"\nNo. de digitos: "+clave.length+"\n\n12 digitos para manzanas\n18 digitos para predios");
+              break;
+          }
+          
+        }
+      });
+
+
+      var dragAndDropInteraction;
+
+      function setInteraction() {
+        if (dragAndDropInteraction) {
+          map.removeInteraction(dragAndDropInteraction);
+        }
+        dragAndDropInteraction = new ol.interaction.DragAndDrop({
+          formatConstructors: [
+            ol.format.GPX,
+            ol.format.GeoJSON,
+            ol.format.IGC,
+            // use constructed format to set options
+            new ol.format.KML({extractStyles: true}),
+            ol.format.TopoJSON ],
+        });
+        dragAndDropInteraction.on('addfeatures', function (event) {
+          var vectorSource = new ol.source.Vector({
+            features: event.features,
+          });
+          map.addLayer(
+            new ol.layer.Vector({
+              source: vectorSource,
+            })
+          );
+          vectorHerramientas.getSource().addFeatures(event.features)
+          map.getView().fit(vectorHerramientas.getSource().getExtent());
+        });
+        map.addInteraction(dragAndDropInteraction);
+      }
+      setInteraction();
+
+
+    </script>
+  </body>
+</html>
