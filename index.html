@@ -280,35 +280,13 @@
             title: 'Ortofotos',
             visible: false,
             source: new ol.source.TileWMS({
-                url: 'http://catastro.culiacan.gob.mx:8082/geoserver/catastro/wms',
+                url: 'https://geoservervte.sinaloa.gob.mx/geoserver/ices/wms',
                 params: {'FORMAT': 'image/png', 
-                              'VERSION': '1.3.0',
+                              'VERSION': '1.1.0',
                               tiled: true,
-                            "LAYERS": 'catastro:orto_mochis'
+                            "LAYERS": 'ices:Ahome_vuelo'
                       },
                 serverType: 'geoserver',
-                crossOrigin: null,
-                tileLoadFunction: function (tile, src) {
-                    var xhr = new XMLHttpRequest();
-                    xhr.responseType = 'blob';
-                    xhr.open('GET', src);
-                    xhr.setRequestHeader("Authorization", "Basic " + window.btoa(u + ":" + p));
-                    xhr.onload = function() {
-                        if (this.response) {
-                            var objectUrl = URL.createObjectURL(xhr.response);
-                            tile.getImage().onload = function() {
-                                URL.revokeObjectURL(objectUrl);
-                            };
-                            tile.getImage().src = objectUrl;
-                        } else {
-                            tile.setState(3);
-                        }
-                    };
-                    xhr.onerror = function() {
-                        tile.setState(3);
-                    };
-                    xhr.send();
-                }
             })
           }),
           new ol.layer.Tile({
